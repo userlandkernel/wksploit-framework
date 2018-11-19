@@ -1,6 +1,0 @@
-- [x] Make Development Branch
-- [x] Add TODO.md
-- [ ] Change README.md to fit the project better
-- [ ] regain shellcode execution
-- [ ] Add safari-based command execution (no need of another device)
-- [ ] Run without fail 5 times in a row (Personal Goal)
