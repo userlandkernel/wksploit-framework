@@ -2,7 +2,7 @@
 Webkit Browser Exploitation Framework written in Javascript
 
 # Warranty
-The process of bypassing Apple's security measures for your iPhone, iPad or iPod touch is legal in the U.S. for the time being. What is certain is that Apple considers jailbreaking a violation of its warranty, so if something goes wrong during the process, it's up to you to fix it.
+The process of bypassing Apple's security measures for your iPhone, iPad or iPod touch is legal in the U.S. for the time being. What is certain is that Apple considers bypassing security measures a violation of the devices warranty, so if something goes wrong during the process, it's up to you to fix it.
 
 # TODO
 - [x] Make Development Branch
