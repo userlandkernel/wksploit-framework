@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>DeviceSupport Unit Test</title>
+	<script type="text/javascript" src="../modular.js"></script>
+	<script type="text/javascript">
+		window.exceptionarr = [];
+		pass = function(x){x=x.stack;console.error(x);alert(x);window.exceptionarr.push(x);document.write('<b style=\'color:red\'>'+x+'</b>');};
+		document.write = function(x){document.writeln(x+"<br>");};
+		try {
+			window.module_base = "../modules";
+            module('devicesupport');
+            document.write('Loading of modules succeeded.');
+		} catch(exception) {
+			pass(exception);
+		}
+
+		function test2() {
+			try {
+				window.test = new Device();
+				document.write("Nameless instantiation and detection succeeded.");
+				document.write("Verbose:");
+				document.write(window.test.toString());
+				document.write('');
+			} catch(exception) {
+				pass(exception);
+			}
+
+			try {
+				window.test = new Device('Barry');
+				document.write("Named instantiation and detection succeded.");
+			} catch(exception) {
+				pass(exception);
+			}
+
+			try {
+				window.test = new Device('Barry', 'Poter', 'x', 2884884, 'f', 'a');
+				document.write("Instantiation with invalid arguments succeeded.");
+			} catch(exception) {
+				pass(exception);
+			}
+
+			try {
+				window.test = new Device();
+				if(window.test.identifier == null) throw new Error('Integration test failed. Device missing identifier.');
+				document.write("Integration test of identifier for devices succeeded.")
+			} catch(exception) {
+				pass(exception);
+			}
+
+			try {
+				window.test = convertBuild(11.31);
+				document.write("Numerical test for convertBuild succeeded.");
+			} catch(exception) {
+				pass(exception);
+			}
+
+			try {
+				window.test = convertBuild();
+				window.test = convertBuild("12H321");
+				if(window.test != 8.41) {
+					throw new Error('convertBuild mismatch version, expected 8.41, got: '+window.test);
+				} else {
+					document.write("convertBuild Integration test succeeded.");
+				}
+			} catch(exception) {
+				pass(exception);
+			}
+
+			try {
+				window.test = current_device();
+				document.write("current_device() succeeded.");
+			} catch(exception) {
+				pass(exception);
+			}
+
+			if(window.exceptionarr.length === 0) {
+				document.write("devicesupport module seems to work!");
+			} else {
+				document.write("there have been errors in the devicesupport module.");
+			}
+		} //EOF test2()
+
+		</script>
+</head>
+<body>
+	Device detection works?
+	<button onclick="test2()">test</button>
+</body>
+</html>

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Module Loading Unit Test</title>
+	<script type="text/javascript" src="../modular.js"></script>
+	<script type="text/javascript">
+		pass = function(x){console.error(x);alert(x);};
+		try {
+			window.module_base = "../modules/";
+			module('sha1');
+            module('sha');
+            module('md5');
+            module('jsfree');
+            module('iomobileframebuffer.applelogo');
+            module('sunspider3dcube');
+            module('devicesupport');
+            module('offsets');
+            module('sploit');
+            module('verbosity');
+		} catch(exception) {
+			pass(exception);
+		}
+
+		
+
+		</script>
+</head>
+<body>
+	Modules loaded normally?
+</body>
+</html>
