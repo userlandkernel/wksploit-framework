@@ -1095,3 +1095,18 @@ var wk1211go = function()
         FileStorage.getcontents(FileStorage.mode.FETCH, 'testmacho', this.callback); //assumably, @nullriver will nagg about this being a 32-bit armv7 mach-o file, but he should realize that I add this just for debugging
     }
 };
+
+/*
+ * Yo if ya still reading,
+ * Try this idk if it works
+ * Use this exploit and rewrite it to be standalone.
+ * Store it on-device at /sploit.js
+ * Compile a dylib with voucher_swap jailbreak (unc0ver) according to stage2 from Niklas Baumstark's 11.3.1 exploit (stage2 by Luca Todesco)
+ * Store it at /payload.dylib
+ * replace libgmalloc dylib as it is a non-dyld_shared_cache dylib with extracted jsc framework (from shared_cache), make sure not to break codesigning.
+ * create /.launchd_use_gmalloc
+ * reboot device
+ * Now you probably have JavascriptCore execution at boot.
+ * Find a way to trick the arguments of JavascriptCore to be '/sploit.js'
+ * Welcome to untethered jailbreak on iOS 12.1.2???
+*/
