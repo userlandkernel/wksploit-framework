@@ -15,7 +15,7 @@ function vm_allocate(size) {
 
 	console.log('Allocating '+numpages+' page(s).');
 	for(i = 0; i < numpages; i++) {
-		addrspace[i] = new Array(HOST_PAGE_SIZE());
+		addrspace[i] = new Uint8Array(HOST_PAGE_SIZE()).buffer;
 	} 
 	return addrspace;
 }
